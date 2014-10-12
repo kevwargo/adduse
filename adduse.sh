@@ -52,7 +52,41 @@ if [[ "$infile" == "$outfile" ]]; then
     cp "$infile" $tmp
 fi
 
-grep -vE "(^[[:space:]]*#|^$)" ${tmp:-"$infile"} | sort | awk -v pkg=$pkg \
+if [[ "$pkg" != *"/"* ]]; then
+    if [ -f /etc/make.conf ]; then
+        makeconf="/etc/make.conf"
+    elif [ -f /etc/portage/make.conf ]; then
+        makeconf="/etc/portage/make.conf"
+    else
+        echo "ERROR: Coundn't find make.conf for resolving package category!!!"
+        exit 1
+    fi
+    portdirs="$(source $makeconf && echo "$PORTDIR $PORTDIR_OVERLAY")"
+    found="$(find $portdirs -mindepth 2 -maxdepth 2 -type d -name $pkg)"
+    for path in $(echo $found | tr ' ' '\n' | grep "^.*/[^/]*-[^/]*/[^/]*$"); do
+        if [ -z "$category" ]; then
+            category=$(basename $(dirname $path))
+        else
+            disambiguous=t
+            category+=" $(basename $(dirname $path))"
+        fi
+    done
+    if [ -n "$disambiguous" ]; then
+        echo "Package name $pkg is disambiguous, please specify what package of theese you meant:"
+        for c in $category; do
+            echo $c/$pkg
+            # echo
+        done
+        exit 1
+    fi
+    if [ -z "$category" ]; then
+        echo "Couldn't find package $pkg in $portdirs"
+        exit 3
+    fi
+    pkg=$category/$pkg
+fi
+
+grep -vE "(^[[:space:]]*#|^$)" ${tmp:-"$infile"} | sort | awk -v pkg="$pkg" \
     -v uses="$uses" -v progname=$(basename "$0") -f "${progdir}/adduse.awk" > "$outfile"
 
 [ -z $tmp ] || rm $tmp
